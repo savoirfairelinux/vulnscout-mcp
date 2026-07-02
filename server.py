@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mcp.server.fastmcp import FastMCP  # the SDK package (not this directory)
 from client import VulnScoutClient
 from tools.assessments import register_tools as register_assessment_tools
-from tools.variants import register_tools as register_variant_tools
+from tools.context import register_tools as register_context_tools
 
 
 def create_server(base_url: str) -> FastMCP:
@@ -16,7 +16,7 @@ def create_server(base_url: str) -> FastMCP:
     client = VulnScoutClient(base_url)
     mcp_server = FastMCP("vulnscout")
     register_assessment_tools(mcp_server, client)
-    register_variant_tools(mcp_server, client)
+    register_context_tools(mcp_server, client)
     return mcp_server
 
 

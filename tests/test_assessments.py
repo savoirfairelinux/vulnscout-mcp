@@ -5,7 +5,7 @@ import httpx
 
 # conftest.py puts mcp/ in sys.path
 from client import VulnScoutClient, VulnScoutError
-from tools.assessments import _write_assessment_impl
+from tools.assessments import _write_assessment_impl, _has_ai_assessment_impl
 
 
 BASE_URL = "http://vulnscout.test"
@@ -90,6 +90,25 @@ class TestWriteAssessmentImpl:
         assert "workaround" not in body
         assert "responses" not in body
         assert "timestamp" not in body
+        assert body["ai_generated"] is True  # always present, default True
+
+    def test_ai_generated_false_is_forwarded(self, client):
+        with respx.mock:
+            route = respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "success", "assessment": {"id": "x", "status": "affected", "packages": []}},
+                )
+            )
+            _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                packages=["lib@1.0"],
+                status="affected",
+                ai_generated=False,
+            )
+        body = json.loads(route.calls[0].request.content)
+        assert body["ai_generated"] is False
 
     def test_api_error_returns_error_string(self, client):
         with respx.mock:
@@ -118,3 +137,62 @@ class TestWriteAssessmentImpl:
             )
         assert "Error" in result
         assert "Could not connect" in result
+
+
+class TestHasAiAssessment:
+
+    VARIANT_ID = "variant-uuid-111"
+
+    def _make_assessment(self, ai_generated, variant_id, assessment_id="uuid-ai", status="affected"):
+        return {
+            "id": assessment_id,
+            "status": status,
+            "packages": ["lib@1.0"],
+            "ai_generated": ai_generated,
+            "variant_id": variant_id,
+        }
+
+    def test_match_found_returns_assessment_details(self, client):
+        assessments = [self._make_assessment(True, self.VARIANT_ID, "uuid-ai", "affected")]
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(200, json=assessments)
+            )
+            result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
+        assert "uuid-ai" in result
+        assert "affected" in result
+
+    def test_no_match_wrong_variant_id(self, client):
+        assessments = [self._make_assessment(True, "other-variant", "uuid-ai")]
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(200, json=assessments)
+            )
+            result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
+        assert "No AI assessment found" in result
+
+    def test_no_match_ai_generated_false(self, client):
+        assessments = [self._make_assessment(False, self.VARIANT_ID, "uuid-human")]
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(200, json=assessments)
+            )
+            result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
+        assert "No AI assessment found" in result
+
+    def test_empty_list_returns_not_found(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(200, json=[])
+            )
+            result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
+        assert "No AI assessment found" in result
+
+    def test_api_error_returns_error_string(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(500, json={"error": "Internal server error"})
+            )
+            result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
+        assert "Error" in result
+        assert "Internal server error" in result

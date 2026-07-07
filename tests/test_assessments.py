@@ -38,6 +38,7 @@ class TestWriteAssessmentImpl:
                 vuln_id="CVE-2024-1234",
                 packages=["openssl@1.0.0"],
                 status="affected",
+                variant_id="variant-uuid-111",
             )
         assert "uuid-abc" in result
         assert "affected" in result
@@ -63,11 +64,13 @@ class TestWriteAssessmentImpl:
                 vuln_id="CVE-2024-5678",
                 packages=["curl@7.0"],
                 status="not_affected",
+                variant_id="variant-uuid-111",
                 justification="vulnerable_code_not_present",
             )
         assert "uuid-def" in result
         body = json.loads(route.calls[0].request.content)
         assert body["justification"] == "vulnerable_code_not_present"
+        assert body["variant_id"] == "variant-uuid-111"
 
     def test_optional_fields_omitted_when_none(self, client):
         with respx.mock:
@@ -82,6 +85,7 @@ class TestWriteAssessmentImpl:
                 vuln_id="CVE-2024-1234",
                 packages=["lib@1.0"],
                 status="affected",
+                variant_id="variant-uuid-111",
             )
         body = json.loads(route.calls[0].request.content)
         assert "justification" not in body
@@ -90,6 +94,7 @@ class TestWriteAssessmentImpl:
         assert "workaround" not in body
         assert "responses" not in body
         assert "timestamp" not in body
+        assert body["variant_id"] == "variant-uuid-111"
         assert body["ai_generated"] is True  # always present, default True
 
     def test_ai_generated_false_is_forwarded(self, client):
@@ -105,6 +110,7 @@ class TestWriteAssessmentImpl:
                 vuln_id="CVE-2024-1234",
                 packages=["lib@1.0"],
                 status="affected",
+                variant_id="variant-uuid-111",
                 ai_generated=False,
             )
         body = json.loads(route.calls[0].request.content)
@@ -120,6 +126,7 @@ class TestWriteAssessmentImpl:
                 vuln_id="CVE-2024-1234",
                 packages=["lib@1.0"],
                 status="not_affected",
+                variant_id="variant-uuid-111",
             )
         assert "Error" in result
         assert "Justification required" in result
@@ -134,6 +141,7 @@ class TestWriteAssessmentImpl:
                 vuln_id="CVE-2024-1234",
                 packages=["lib@1.0"],
                 status="affected",
+                variant_id="variant-uuid-111",
             )
         assert "Error" in result
         assert "Could not connect" in result

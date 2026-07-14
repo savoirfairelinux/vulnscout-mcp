@@ -16,16 +16,29 @@ An [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server that e
 
 ## Getting started
 
-### Run with the bootstrap launcher (recommended for MCP clients)
+This server speaks MCP over stdio and is meant to be launched by an MCP
+client (VS Code, the Copilot CLI, etc.), not run standalone as an HTTP
+service. The client starts `run_server.py` as a subprocess per session and
+talks to it over stdin/stdout; there is no listening port or long-running
+daemon to manage yourself.
 
-`run_server.py` is a self-contained launcher: on first run it creates a local `venv/`, installs `requirements.txt` into it, then execs into the server. This means an MCP client can point straight at the script without any manual setup.
+### Bootstrap launcher
 
-Point your MCP client configuration at it, for example:
+`run_server.py` is a self-contained launcher: on first run it creates a local
+`venv/`, installs `requirements.txt` into it, then execs into the server.
+This means an MCP client can point straight at the script without any manual
+setup — just clone the repo and configure a client below.
+
+### Configure in VS Code (GitHub Copilot extension)
+
+Add a server entry to your workspace `.vscode/mcp.json` (or run **MCP: Add
+Server** from the Command Palette and choose **Workspace**/**Global**):
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "vulnscout": {
+      "type": "stdio",
       "command": "python3",
       "args": ["/path/to/vulnscout-mcp/run_server.py"],
       "env": {
@@ -36,7 +49,43 @@ Point your MCP client configuration at it, for example:
 }
 ```
 
-### Run manually
+### Configure in GitHub Copilot CLI
+
+Either run `/mcp add` in interactive mode and fill in the form (**Type:**
+STDIO, **Command:** `python3 /path/to/vulnscout-mcp/run_server.py`,
+**Environment Variables:** `{"VULNSCOUT_BASE_URL":"http://localhost:7275"}`),
+or add it from the terminal:
+
+```bash
+copilot mcp add vulnscout \
+  --env VULNSCOUT_BASE_URL=http://localhost:7275 \
+  -- python3 /path/to/vulnscout-mcp/run_server.py
+```
+
+Or edit `~/.copilot/mcp-config.json` directly:
+
+```json
+{
+  "mcpServers": {
+    "vulnscout": {
+      "type": "local",
+      "command": "python3",
+      "args": ["/path/to/vulnscout-mcp/run_server.py"],
+      "env": {
+        "VULNSCOUT_BASE_URL": "http://localhost:7275"
+      },
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+### Run manually (for development/testing only)
+
+You can invoke the server directly with stdio to exercise it outside a full
+MCP client (e.g. with the [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector)),
+but this is not a supported way to run it in production — it is not an HTTP
+server and has no standalone service mode:
 
 ```bash
 pip install -r requirements.txt

@@ -293,3 +293,36 @@ class TestUpdateVariantContext:
             )
             with pytest.raises(VulnScoutError, match="Could not connect to VulnScout at http://vulnscout.test"):
                 client.update_variant_context("v1", {"threat_model": "x"})
+
+
+class TestUpdateAssessment:
+
+    def test_sends_payload_and_returns_json(self, client):
+        with respx.mock:
+            route = respx.patch(f"{BASE_URL}/api/assessments/a1").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "success", "assessment": {"id": "a1", "status": "not_affected"}},
+                )
+            )
+            result = client.update_assessment("a1", {"status": "not_affected"})
+        assert route.called
+        body = json.loads(route.calls[0].request.content)
+        assert body == {"status": "not_affected"}
+        assert result["assessment"]["status"] == "not_affected"
+
+    def test_api_400_raises_vuln_scout_error(self, client):
+        with respx.mock:
+            respx.patch(f"{BASE_URL}/api/assessments/a1").mock(
+                return_value=httpx.Response(400, json={"error": "Invalid status"})
+            )
+            with pytest.raises(VulnScoutError, match="Invalid status"):
+                client.update_assessment("a1", {"status": "bogus"})
+
+    def test_connection_error_raises_vuln_scout_error(self, client):
+        with respx.mock:
+            respx.patch(f"{BASE_URL}/api/assessments/a1").mock(
+                side_effect=httpx.ConnectError("Connection refused")
+            )
+            with pytest.raises(VulnScoutError, match="Could not connect to VulnScout at http://vulnscout.test"):
+                client.update_assessment("a1", {"status": "not_affected"})

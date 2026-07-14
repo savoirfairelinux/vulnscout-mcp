@@ -57,7 +57,7 @@ def _has_ai_assessment_impl(
         return f"Error: {e}"
 
     for a in assessments:
-        if a.get("ai_generated") is True and a.get("variant_id") == variant_id:
+        if a.get("origin") == "ai" and a.get("variant_id") == variant_id:
             return (
                 f"AI assessment found: id={a.get('id')}, "
                 f"status={a.get('status')}, "
@@ -81,7 +81,7 @@ def _update_ai_assessment_impl(
     except VulnScoutError as e:
         return f"Error: {e}"
 
-    if existing.get("ai_generated") is not True:
+    if existing.get("origin") != "ai":
         return f"Assessment {assessment_id} is not an AI-generated assessment; refusing to modify it."
 
     payload: dict = {}
@@ -241,7 +241,7 @@ def register_tools(server, client: VulnScoutClient) -> None:
     ) -> str:
         """Modify an existing AI-generated VEX assessment in VulnScout.
 
-        Only assessments with `ai_generated` set to True may be modified by
+        Only assessments whose `origin` is `"ai"` may be modified by
         this tool. The assessment is fetched first to verify this; if it is
         not AI-generated, the tool refuses to modify it and no update request
         is sent. All fields below are optional — only the ones supplied are

@@ -151,17 +151,17 @@ class TestHasAiAssessment:
 
     VARIANT_ID = "variant-uuid-111"
 
-    def _make_assessment(self, ai_generated, variant_id, assessment_id="uuid-ai", status="affected"):
+    def _make_assessment(self, origin, variant_id, assessment_id="uuid-ai", status="affected"):
         return {
             "id": assessment_id,
             "status": status,
             "packages": ["lib@1.0"],
-            "ai_generated": ai_generated,
+            "origin": origin,
             "variant_id": variant_id,
         }
 
     def test_match_found_returns_assessment_details(self, client):
-        assessments = [self._make_assessment(True, self.VARIANT_ID, "uuid-ai", "affected")]
+        assessments = [self._make_assessment("ai", self.VARIANT_ID, "uuid-ai", "affected")]
         with respx.mock:
             respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
                 return_value=httpx.Response(200, json=assessments)
@@ -171,7 +171,7 @@ class TestHasAiAssessment:
         assert "affected" in result
 
     def test_no_match_wrong_variant_id(self, client):
-        assessments = [self._make_assessment(True, "other-variant", "uuid-ai")]
+        assessments = [self._make_assessment("ai", "other-variant", "uuid-ai")]
         with respx.mock:
             respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
                 return_value=httpx.Response(200, json=assessments)
@@ -180,7 +180,7 @@ class TestHasAiAssessment:
         assert "No AI assessment found" in result
 
     def test_no_match_ai_generated_false(self, client):
-        assessments = [self._make_assessment(False, self.VARIANT_ID, "uuid-human")]
+        assessments = [self._make_assessment("custom", self.VARIANT_ID, "uuid-human")]
         with respx.mock:
             respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
                 return_value=httpx.Response(200, json=assessments)
@@ -210,12 +210,12 @@ class TestUpdateAiAssessmentImpl:
 
     ASSESSMENT_ID = "uuid-ai"
 
-    def _ai_assessment(self, ai_generated=True, status="affected"):
+    def _ai_assessment(self, origin="ai", status="affected"):
         return {
             "id": self.ASSESSMENT_ID,
             "status": status,
             "packages": ["lib@1.0"],
-            "ai_generated": ai_generated,
+            "origin": origin,
             "variant_id": "variant-uuid-111",
         }
 
@@ -248,7 +248,7 @@ class TestUpdateAiAssessmentImpl:
     def test_refuses_to_modify_non_ai_assessment(self, client):
         with respx.mock:
             respx.get(f"{BASE_URL}/api/assessments/{self.ASSESSMENT_ID}").mock(
-                return_value=httpx.Response(200, json=self._ai_assessment(ai_generated=False))
+                return_value=httpx.Response(200, json=self._ai_assessment(origin="custom"))
             )
             patch_route = respx.patch(f"{BASE_URL}/api/assessments/{self.ASSESSMENT_ID}")
             result = _update_ai_assessment_impl(client, assessment_id=self.ASSESSMENT_ID, status="fixed")
@@ -257,7 +257,7 @@ class TestUpdateAiAssessmentImpl:
 
     def test_refuses_to_modify_when_ai_generated_missing(self, client):
         assessment = self._ai_assessment()
-        del assessment["ai_generated"]
+        del assessment["origin"]
         with respx.mock:
             respx.get(f"{BASE_URL}/api/assessments/{self.ASSESSMENT_ID}").mock(
                 return_value=httpx.Response(200, json=assessment)

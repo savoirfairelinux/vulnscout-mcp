@@ -113,6 +113,7 @@ class TestGetMergedContextImpl:
                         "description": "proj desc",
                         "variant_id": "v1",
                         "variant_description": "var desc",
+                        "codebase_path": "/src/app",
                         "environment": "linux",
                         "threat_model": "CVSS >= 7",
                         "risks": "none",
@@ -124,6 +125,7 @@ class TestGetMergedContextImpl:
             result = _get_merged_context_impl(client, "p1", "v1")
         assert "proj desc" in result
         assert "var desc" in result
+        assert "/src/app" in result
         assert "CVSS >= 7" in result
         assert "report.pdf" in result
 

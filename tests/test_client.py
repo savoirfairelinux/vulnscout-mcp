@@ -295,6 +295,55 @@ class TestUpdateVariantContext:
                 client.update_variant_context("v1", {"threat_model": "x"})
 
 
+class TestGetVulnerability:
+
+    def test_success_returns_response_dict(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"id": "CVE-2024-1234", "description": "desc", "texts": []},
+                )
+            )
+            result = client.get_vulnerability("CVE-2024-1234")
+        assert result["id"] == "CVE-2024-1234"
+        assert result["description"] == "desc"
+
+    def test_no_variant_id_sends_no_params(self, client):
+        with respx.mock:
+            route = respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234").mock(
+                return_value=httpx.Response(200, json={"id": "CVE-2024-1234"})
+            )
+            client.get_vulnerability("CVE-2024-1234")
+        assert route.called
+        assert "variant_id" not in route.calls[0].request.url.params
+
+    def test_sends_variant_id_as_param_when_provided(self, client):
+        with respx.mock:
+            route = respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234").mock(
+                return_value=httpx.Response(200, json={"id": "CVE-2024-1234"})
+            )
+            client.get_vulnerability("CVE-2024-1234", variant_id="v1")
+        assert route.called
+        assert route.calls[0].request.url.params["variant_id"] == "v1"
+
+    def test_api_404_raises_vuln_scout_error(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234").mock(
+                return_value=httpx.Response(404, text="Not found")
+            )
+            with pytest.raises(VulnScoutError, match="Not found"):
+                client.get_vulnerability("CVE-2024-1234")
+
+    def test_connection_error_raises_vuln_scout_error(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234").mock(
+                side_effect=httpx.ConnectError("Connection refused")
+            )
+            with pytest.raises(VulnScoutError, match="Could not connect to VulnScout at http://vulnscout.test"):
+                client.get_vulnerability("CVE-2024-1234")
+
+
 class TestUpdateAssessment:
 
     def test_sends_payload_and_returns_json(self, client):

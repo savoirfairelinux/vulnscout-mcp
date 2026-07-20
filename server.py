@@ -9,6 +9,7 @@ from mcp.server.fastmcp import FastMCP  # the SDK package (not this directory)
 from client import VulnScoutClient
 from tools.assessments import register_tools as register_assessment_tools
 from tools.context import register_tools as register_context_tools
+from tools.vulnerabilities import register_tools as register_vulnerability_tools
 
 
 def create_server(base_url: str) -> FastMCP:
@@ -17,6 +18,7 @@ def create_server(base_url: str) -> FastMCP:
     mcp_server = FastMCP("vulnscout")
     register_assessment_tools(mcp_server, client)
     register_context_tools(mcp_server, client)
+    register_vulnerability_tools(mcp_server, client)
     return mcp_server
 
 

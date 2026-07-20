@@ -10,6 +10,7 @@ def _fmt_merged_context(ctx: dict) -> str:
         f"description={ctx.get('description')}\n"
         f"variant_id={ctx.get('variant_id')}\n"
         f"variant_description={ctx.get('variant_description')}\n"
+        f"codebase_path={ctx.get('codebase_path')}\n"
         f"environment={ctx.get('environment')}\n"
         f"threat_model={ctx.get('threat_model')}\n"
         f"risks={ctx.get('risks')}\n"
@@ -161,10 +162,12 @@ def register_tools(server, client: VulnScoutClient) -> None:
         """Get the merged context for a project + variant pair.
 
         Returns the project's description together with the variant's
-        variant_description, environment, threat_model, risks, other_info,
-        and any attached file names. Both IDs are required; the variant must
-        belong to the given project. If only the project/variant
-        names are known, resolve them first with find_project_id and find_variant_id.
+        variant_description, codebase_path, environment, threat_model, risks,
+        other_info, and any attached file names. codebase_path may contain
+        multiple paths separated by semicolons (e.g. "/src/app;/src/lib").
+        Both IDs are required; the variant must belong to the given project.
+        If only the project/variant names are known, resolve them first with
+        find_project_id and find_variant_id.
 
         Args:
             project_id: UUID of the project.

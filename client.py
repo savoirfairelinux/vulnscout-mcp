@@ -46,12 +46,80 @@ class VulnScoutClient:
             raise VulnScoutError(error_msg)
         return response.json()
 
-    def get_variant_context(self, variant_id: str) -> dict:
-        """GET /api/variants/<variant_id>/context."""
-        url = f"{self.base_url}/api/variants/{variant_id}/context"
+    def list_projects(self) -> list:
+        """GET /api/projects. Returns a list of {id, name} dicts."""
+        url = f"{self.base_url}/api/projects"
         try:
             with httpx.Client() as http:
                 response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def list_variants_by_project(self, project_id: str) -> list:
+        """GET /api/projects/<project_id>/variants. Returns a list of {id, name, project_id} dicts."""
+        url = f"{self.base_url}/api/projects/{project_id}/variants"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def get_merged_context(self, project_id: str, variant_id: str) -> dict:
+        """GET /api/context?project_id=<project_id>&variant_id=<variant_id>.
+
+        Returns the merged project + variant context view.
+        """
+        url = f"{self.base_url}/api/context"
+        params = {"project_id": project_id, "variant_id": variant_id}
+        try:
+            with httpx.Client() as http:
+                response = http.get(url, params=params)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def get_project_context(self, project_id: str) -> dict:
+        """GET /api/projects/<project_id>/context."""
+        url = f"{self.base_url}/api/projects/{project_id}/context"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def update_project_context(self, project_id: str, description: str | None) -> dict:
+        """PUT /api/projects/<project_id>/context."""
+        url = f"{self.base_url}/api/projects/{project_id}/context"
+        try:
+            with httpx.Client() as http:
+                response = http.put(url, json={"description": description})
         except httpx.ConnectError:
             raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
         if not response.is_success:
@@ -78,10 +146,36 @@ class VulnScoutClient:
             raise VulnScoutError(error_msg)
         return response.json()
 
-    def get_variant_context_by_name(self, project_name: str, variant_name: str) -> dict:
-        """GET /api/variants/context?project_name=...&variant_name=..."""
-        url = f"{self.base_url}/api/variants/context"
-        params = {"project_name": project_name, "variant_name": variant_name}
+    def update_assessment(self, assessment_id: str, payload: dict) -> dict:
+        """PATCH /api/assessments/<assessment_id>.
+
+        Returns the parsed JSON response on success.
+        Raises VulnScoutError on non-2xx response or connection failure.
+        """
+        url = f"{self.base_url}/api/assessments/{assessment_id}"
+        try:
+            with httpx.Client() as http:
+                response = http.patch(url, json=payload)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def get_vulnerability(self, vuln_id: str, variant_id: str | None = None) -> dict:
+        """GET /api/vulnerabilities/<vuln_id>, optionally scoped by variant_id.
+
+        When variant_id is provided, the response's severity/effort fields are
+        overridden with variant-scoped values.
+        Returns the parsed JSON response on success.
+        Raises VulnScoutError on non-2xx response or connection failure.
+        """
+        url = f"{self.base_url}/api/vulnerabilities/{vuln_id}"
+        params = {"variant_id": variant_id} if variant_id is not None else None
         try:
             with httpx.Client() as http:
                 response = http.get(url, params=params)

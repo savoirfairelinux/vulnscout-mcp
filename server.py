@@ -5,17 +5,17 @@ import sys
 # This allows `from client import ...` and `from tools.assessments import ...` to resolve.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from mcp.server.fastmcp import FastMCP  # the SDK package (not this directory)
+from mcp.server.mcpserver import MCPServer
 from client import VulnScoutClient
 from tools.assessments import register_tools as register_assessment_tools
 from tools.context import register_tools as register_context_tools
 from tools.vulnerabilities import register_tools as register_vulnerability_tools
 
 
-def create_server(base_url: str) -> FastMCP:
+def create_server(base_url: str) -> MCPServer:
     """Create and configure the VulnScout MCP server."""
     client = VulnScoutClient(base_url)
-    mcp_server = FastMCP("vulnscout")
+    mcp_server = MCPServer("vulnscout")
     register_assessment_tools(mcp_server, client)
     register_context_tools(mcp_server, client)
     register_vulnerability_tools(mcp_server, client)

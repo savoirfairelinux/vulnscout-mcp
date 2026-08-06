@@ -83,12 +83,23 @@ from tools.reviews import (
 
 
 class FakeClient:
-    def __init__(self, assessment=None, rows=None, review_result=None):
+    def __init__(
+        self,
+        assessment=None,
+        rows=None,
+        review_result=None,
+        projects=None,
+        variants=None,
+    ):
         self._assessment = assessment or {}
         self._rows = rows or []
         self._review_result = review_result or {"review": {"id": "r1", "status": "affected"}}
+        self._projects = projects if projects is not None else [{"id": "p1", "name": "proj"}]
+        self._variants = variants if variants is not None else [{"id": "v-resolved", "name": "v1"}]
         self.last_params = None
         self.last_payload = None
+        self.list_projects_calls = 0
+        self.list_variants_by_project_calls = 0
 
     def get_assessment(self, assessment_id):
         return dict(self._assessment, id=assessment_id)
@@ -103,6 +114,14 @@ class FakeClient:
     def write_assessment_review(self, assessment_id, payload):
         self.last_payload = payload
         return self._review_result
+
+    def list_projects(self):
+        self.list_projects_calls += 1
+        return self._projects
+
+    def list_variants_by_project(self, project_id):
+        self.list_variants_by_project_calls += 1
+        return self._variants
 
 
 def test_get_custom_assessment_refuses_non_custom_origin():
@@ -178,3 +197,51 @@ def test_write_assessment_review_omits_unset_fields():
 
     # Assert
     assert client.last_payload == {"status": "affected", "rationale": "in rootfs"}
+
+
+def test_list_custom_assessments_resolves_project_and_variant_name():
+    # Arrange
+    client = FakeClient(
+        projects=[{"id": "p1", "name": "proj"}],
+        variants=[{"id": "v-resolved", "name": "v1"}],
+    )
+
+    # Act
+    out = _list_custom_assessments_impl(client, project_name="proj", variant_name="v1")
+
+    # Assert
+    assert client.last_params["variant_id"] == "v-resolved"
+    assert client.last_params["project_id"] == "p1"
+    # _list_custom_assessments_impl resolves the project id directly, then again
+    # inside _find_variant_id_or_raise, so list_projects is called twice.
+    assert client.list_projects_calls == 2
+    assert client.list_variants_by_project_calls == 1
+    assert "No custom assessments" in out
+
+
+def test_list_custom_assessments_defaults_variant_name_to_default():
+    # Arrange
+    client = FakeClient(
+        projects=[{"id": "p1", "name": "proj"}],
+        variants=[{"id": "v-default", "name": "default"}],
+    )
+
+    # Act
+    _list_custom_assessments_impl(client, project_name="proj")
+
+    # Assert
+    assert client.last_params["variant_id"] == "v-default"
+
+
+def test_list_custom_assessments_skips_resolution_when_variant_id_given():
+    # Arrange
+    client = FakeClient()
+
+    # Act
+    _list_custom_assessments_impl(client, project_name="proj", variant_id="v-explicit")
+
+    # Assert
+    assert client.last_params["variant_id"] == "v-explicit"
+    assert "project_id" not in client.last_params
+    assert client.list_projects_calls == 0
+    assert client.list_variants_by_project_calls == 0

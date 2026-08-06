@@ -73,3 +73,108 @@ def test_get_assessment_review_returns_empty_on_404(monkeypatch):
 
     # Act / Assert
     assert client.get_assessment_review("a1") == {}
+
+
+from tools.reviews import (
+    _get_custom_assessment_impl,
+    _list_custom_assessments_impl,
+    _write_assessment_review_impl,
+)
+
+
+class FakeClient:
+    def __init__(self, assessment=None, rows=None, review_result=None):
+        self._assessment = assessment or {}
+        self._rows = rows or []
+        self._review_result = review_result or {"review": {"id": "r1", "status": "affected"}}
+        self.last_params = None
+        self.last_payload = None
+
+    def get_assessment(self, assessment_id):
+        return dict(self._assessment, id=assessment_id)
+
+    def get_assessment_review(self, assessment_id):
+        return {}
+
+    def list_custom_assessments(self, params):
+        self.last_params = params
+        return self._rows
+
+    def write_assessment_review(self, assessment_id, payload):
+        self.last_payload = payload
+        return self._review_result
+
+
+def test_get_custom_assessment_refuses_non_custom_origin():
+    # Arrange
+    client = FakeClient(assessment={"origin": "sbom", "status": "affected"})
+
+    # Act
+    out = _get_custom_assessment_impl(client, "a1")
+
+    # Assert
+    assert "not a custom assessment" in out.lower()
+
+
+def test_get_custom_assessment_returns_fields():
+    # Arrange
+    client = FakeClient(
+        assessment={
+            "origin": "custom",
+            "vuln_id": "CVE-2024-0001",
+            "packages": ["openssl@3.0.8"],
+            "status": "not_affected",
+            "variant_id": "v1",
+        }
+    )
+
+    # Act
+    out = _get_custom_assessment_impl(client, "a1")
+
+    # Assert
+    assert "CVE-2024-0001" in out
+    assert "not_affected" in out
+    assert "v1" in out
+
+
+def test_list_custom_assessments_sends_limit_and_order():
+    # Arrange
+    client = FakeClient(rows=[{"id": "a1", "vuln_id": "CVE-2024-0001", "status": "affected"}])
+
+    # Act
+    out = _list_custom_assessments_impl(client, variant_id="v1", limit=10)
+
+    # Assert
+    assert client.last_params["variant_id"] == "v1"
+    assert client.last_params["limit"] == 10
+    assert client.last_params["order"] == "timestamp_desc"
+    assert "CVE-2024-0001" in out
+
+
+def test_list_custom_assessments_reports_empty_result():
+    client = FakeClient(rows=[])
+
+    assert "no custom assessments" in _list_custom_assessments_impl(client).lower()
+
+
+def test_write_assessment_review_requires_rationale():
+    # Arrange
+    client = FakeClient()
+
+    # Act
+    out = _write_assessment_review_impl(client, "a1", status="affected", rationale="  ")
+
+    # Assert
+    assert out.startswith("Error")
+    assert client.last_payload is None
+
+
+def test_write_assessment_review_omits_unset_fields():
+    # Arrange
+    client = FakeClient()
+
+    # Act
+    _write_assessment_review_impl(client, "a1", status="affected", rationale="in rootfs")
+
+    # Assert
+    assert client.last_payload == {"status": "affected", "rationale": "in rootfs"}

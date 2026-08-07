@@ -217,6 +217,11 @@ def register_tools(server, client: VulnScoutClient) -> None:
         previous review. The server rejects any assessment whose origin is not
         "custom".
 
+        Every VEX field you leave unset is stored empty and counts as a
+        disagreement when the server computes the agrees/differs verdict —
+        pass every field you derived, including ones that match the
+        assessment, not just the ones that differ from it.
+
         Args:
             assessment_id: UUID of the assessment being reviewed.
             status: Independently derived status. OpenVEX values:

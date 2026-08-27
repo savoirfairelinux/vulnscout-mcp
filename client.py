@@ -204,3 +204,73 @@ class VulnScoutClient:
                 error_msg = response.text
             raise VulnScoutError(error_msg)
         return response.json()
+
+    def list_custom_assessments(self, params: dict) -> list:
+        """GET /api/custom-assessments with the given query parameters."""
+        url = f"{self.base_url}/api/custom-assessments"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url, params=params)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def get_assessment_group(self, group_id: str) -> dict:
+        """GET /api/assessment-groups/<group_id>."""
+        url = f"{self.base_url}/api/assessment-groups/{group_id}"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def get_assessment_review(self, assessment_id: str) -> dict:
+        """GET /api/assessments/<assessment_id>/review.
+
+        Returns an empty dict when no review exists, so callers can treat
+        "no review" as an ordinary outcome rather than an error.
+        """
+        url = f"{self.base_url}/api/assessments/{assessment_id}/review"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if response.status_code == 404:
+            return {}
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
+    def write_assessment_review(self, assessment_id: str, payload: dict) -> dict:
+        """PUT /api/assessments/<assessment_id>/review. Upserts the review."""
+        url = f"{self.base_url}/api/assessments/{assessment_id}/review"
+        try:
+            with httpx.Client() as http:
+                response = http.put(url, json=payload)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()

@@ -8,7 +8,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mcp.server.mcpserver import MCPServer
 from client import VulnScoutClient
 from tools.assessments import register_tools as register_assessment_tools
+from tools.assessment_groups import register_tools as register_assessment_group_tools
 from tools.context import register_tools as register_context_tools
+from tools.reviews import register_tools as register_review_tools
 from tools.vulnerabilities import register_tools as register_vulnerability_tools
 
 
@@ -17,8 +19,10 @@ def create_server(base_url: str) -> MCPServer:
     client = VulnScoutClient(base_url)
     mcp_server = MCPServer("vulnscout")
     register_assessment_tools(mcp_server, client)
+    register_assessment_group_tools(mcp_server, client)
     register_context_tools(mcp_server, client)
     register_vulnerability_tools(mcp_server, client)
+    register_review_tools(mcp_server, client)
     return mcp_server
 
 

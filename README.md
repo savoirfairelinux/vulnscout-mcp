@@ -25,7 +25,8 @@ daemon to manage yourself.
 ### Bootstrap launcher
 
 `run_server.py` is a self-contained launcher: on first run it creates a local
-`venv/`, installs `requirements.txt` into it, then execs into the server.
+`venv/`, and on every run it syncs `requirements.txt` into that venv before
+execing into the server, so dependency bumps are picked up automatically.
 This means an MCP client can point straight at the script without any manual
 setup — just clone the repo and configure a client below.
 
@@ -106,9 +107,11 @@ python server.py
 | `write_assessment`             | Create a VEX assessment for a CVE on one or more packages           |
 | `get_assessment`                | Retrieve a single VEX assessment by ID                               |
 | `list_assessments_by_vuln`     | List all VEX assessments recorded for a CVE                          |
-| `get_variant_context`          | Get context fields for a variant by UUID                             |
+| `get_assessment_group`          | Resolve a copied `group:`/`assessment:` reference to its assessment IDs |
+| `get_project_context`          | Get context fields for a project by UUID                             |
+| `update_project_context`       | Update the description of a project                                  |
 | `update_variant_context`       | Update context fields for a variant by UUID (partial updates)       |
-| `get_variant_context_by_name`  | Get context fields for a variant by project name and variant name   |
+| `get_merged_context`           | Get the merged project + variant context for a variant               |
 
 > [!NOTE]
 > Every tool returns a plain string: either a formatted summary of the result or an `Error: ...` message. Tools never raise exceptions back to the agent.
@@ -121,7 +124,10 @@ server.py           Builds the FastMCP server and registers tool modules
 run_server.py       Self-bootstrapping launcher (creates venv, installs deps, execs server.py)
 tools/
   assessments.py    Tools for reading/writing VEX assessments
-  variants.py       Tools for reading/updating variant context
+  assessment_groups.py  Tool resolving an assessment group to its assessment IDs
+  context.py        Tools for reading/updating project and variant context
+  reviews.py        Tools for reading custom assessments and writing reviews
+  vulnerabilities.py  Tool for reading a vulnerability, optionally variant-scoped
 tests/              pytest + respx test suite
 ```
 

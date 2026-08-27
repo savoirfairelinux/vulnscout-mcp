@@ -49,7 +49,8 @@ def install_requirements():
     print(f"Installing dependencies...", file=sys.stderr)
     result = subprocess.run(
         [str(pip_path), "install", "-r", str(requirements_path)],
-        capture_output=False
+        stdout=sys.stderr,
+        stderr=sys.stderr,
     )
     
     if result.returncode != 0:
@@ -76,11 +77,11 @@ def main():
     try:
         if not venv_exists():
             create_venv()
-            install_requirements()
         else:
-            # Venv exists, but check if requirements need updating
-            # Optionally run pip install -r requirements.txt in upgrade mode
             print("Virtual environment already exists.", file=sys.stderr)
+
+        # Always sync dependencies so requirement bumps reach an existing venv.
+        install_requirements()
         
         run_server()
     except Exception as e:

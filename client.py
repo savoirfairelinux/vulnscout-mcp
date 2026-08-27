@@ -221,6 +221,22 @@ class VulnScoutClient:
             raise VulnScoutError(error_msg)
         return response.json()
 
+    def get_assessment_group(self, group_id: str) -> dict:
+        """GET /api/assessment-groups/<group_id>."""
+        url = f"{self.base_url}/api/assessment-groups/{group_id}"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
     def get_assessment_review(self, assessment_id: str) -> dict:
         """GET /api/assessments/<assessment_id>/review.
 

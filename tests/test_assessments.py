@@ -116,6 +116,59 @@ class TestWriteAssessmentImpl:
         body = json.loads(route.calls[0].request.content)
         assert body["ai_generated"] is False
 
+    def test_variant_ids_sent_when_provided(self, client):
+        with respx.mock:
+            route = respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "success", "assessment": {
+                        "id": "x", "status": "affected", "packages": [],
+                        "variant_ids": ["v1", "v2"], "targets": [{}, {}],
+                    }},
+                )
+            )
+            result = _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                packages=["lib@1.0"],
+                status="affected",
+                variant_ids=["v1", "v2"],
+            )
+        body = json.loads(route.calls[0].request.content)
+        assert body["variant_ids"] == ["v1", "v2"]
+        assert "variant_id" not in body
+        assert "2 target(s)" in result
+
+    def test_variant_ids_takes_precedence_over_variant_id(self, client):
+        with respx.mock:
+            route = respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "success", "assessment": {"id": "x", "status": "affected", "packages": []}},
+                )
+            )
+            _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                packages=["lib@1.0"],
+                status="affected",
+                variant_id="variant-uuid-111",
+                variant_ids=["v1", "v2"],
+            )
+        body = json.loads(route.calls[0].request.content)
+        assert body["variant_ids"] == ["v1", "v2"]
+        assert "variant_id" not in body
+
+    def test_missing_variant_returns_error_without_request(self, client):
+        with respx.mock:
+            result = _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                packages=["lib@1.0"],
+                status="affected",
+            )
+        assert result == "Error: variant_id or variant_ids is required"
+
     def test_api_error_returns_error_string(self, client):
         with respx.mock:
             respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
@@ -151,13 +204,14 @@ class TestHasAiAssessment:
 
     VARIANT_ID = "variant-uuid-111"
 
-    def _make_assessment(self, origin, variant_id, assessment_id="uuid-ai", status="affected"):
+    def _make_assessment(self, origin, variant_id, assessment_id="uuid-ai", status="affected", variant_ids=None):
         return {
             "id": assessment_id,
             "status": status,
             "packages": ["lib@1.0"],
             "origin": origin,
             "variant_id": variant_id,
+            "variant_ids": variant_ids if variant_ids is not None else ([variant_id] if variant_id else []),
         }
 
     def test_match_found_returns_assessment_details(self, client):
@@ -169,6 +223,19 @@ class TestHasAiAssessment:
             result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
         assert "uuid-ai" in result
         assert "affected" in result
+
+    def test_match_found_for_cross_variant_assessment(self, client):
+        # A cross-variant assessment has variant_id=None but lists every
+        # variant it covers in variant_ids.
+        assessments = [self._make_assessment(
+            "ai", None, "uuid-ai", "affected", variant_ids=["other-variant", self.VARIANT_ID],
+        )]
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(200, json=assessments)
+            )
+            result = _has_ai_assessment_impl(client, vuln_id="CVE-2024-1234", variant_id=self.VARIANT_ID)
+        assert "uuid-ai" in result
 
     def test_no_match_wrong_variant_id(self, client):
         assessments = [self._make_assessment("ai", "other-variant", "uuid-ai")]

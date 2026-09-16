@@ -116,9 +116,9 @@ python server.py
 | `get_project_context`          | Get context fields for a project by UUID                             |
 | `update_project_context`       | Update the description of a project                                  |
 | `update_variant_context`       | Update context fields for a variant by UUID (partial updates)       |
-| `get_custom_assessment`        | Fetch a single user/custom assessment, with any existing AI review  |
+| `get_custom_assessment`        | Fetch a single user/custom assessment, with any existing per-target AI reviews |
 | `list_custom_assessments`      | List user/custom assessments, optionally scoped to a project variant |
-| `write_assessment_review`      | Save an AI review of a user/custom assessment                        |
+| `write_assessment_review`      | Save an AI review of one (variant, package) target of a user/custom assessment |
 
 > [!NOTE]
 > Every tool returns a plain string: either a formatted summary of the result or an `Error: ...` message. Tools never raise exceptions back to the agent.

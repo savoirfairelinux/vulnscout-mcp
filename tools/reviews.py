@@ -54,22 +54,26 @@ def _get_custom_assessment_impl(client: VulnScoutClient, assessment_id: str) -> 
         f"  timestamp={assessment.get('timestamp')}",
         "  targets:",
     ]
+    reviews_by_target = {
+        (r.get("variant_id"), r.get("package")): r
+        for r in (assessment.get("reviews") or [])
+    }
     for t in targets:
         lines.append(
             f"    variant_id={t.get('variant_id')} package={t.get('package')} "
             f"outdated={t.get('outdated')}"
         )
+        review = reviews_by_target.get((t.get("variant_id"), t.get("package")))
+        if review:
+            lines.append(
+                f"      review: status={review.get('status')} "
+                f"verdict={review.get('verdict')} is_stale={review.get('is_stale')}"
+            )
+        else:
+            lines.append("      review: none")
     if not targets:
         lines.append("    none")
 
-    existing = assessment.get("review")
-    if existing:
-        lines.append(
-            f"  existing review: status={existing.get('status')} "
-            f"verdict={existing.get('verdict')} is_stale={existing.get('is_stale')}"
-        )
-    else:
-        lines.append("  existing review: none")
     return "\n".join(lines)
 
 
@@ -121,16 +125,24 @@ def _list_custom_assessments_impl(
             f"status_notes={a.get('status_notes')} "
             f"impact_statement={a.get('impact_statement')} "
             f"workaround={a.get('workaround')} timestamp={a.get('timestamp')} "
-            f"has_review={a.get('has_review')}"
+            f"has_review={a.get('has_review')} (any target reviewed)"
         )
+        for tr in a.get("target_reviews") or []:
+            lines.append(
+                f"    variant_id={tr.get('variant_id')} package={tr.get('package')} "
+                f"has_review={tr.get('has_review')} is_stale={tr.get('is_stale')}"
+            )
     return "\n".join(lines)
 
 
 def _write_assessment_review_impl(
     client: VulnScoutClient,
     assessment_id: str,
+    variant_id: str,
     status: str,
     rationale: str,
+    package: Optional[str] = None,
+    finding_id: Optional[str] = None,
     status_notes: Optional[str] = None,
     justification: Optional[str] = None,
     impact_statement: Optional[str] = None,
@@ -140,8 +152,20 @@ def _write_assessment_review_impl(
     """Core logic for write_assessment_review — separated for testability."""
     if not rationale or not rationale.strip():
         return "Error: rationale is required — state why the review reaches its conclusion."
+    if not variant_id:
+        return "Error: variant_id is required — a review targets one (variant, package) pair."
+    if not finding_id and not package:
+        return "Error: finding_id or package is required — a review targets one (variant, package) pair."
 
-    payload: dict = {"status": status, "rationale": rationale.strip()}
+    payload: dict = {
+        "status": status,
+        "rationale": rationale.strip(),
+        "variant_id": variant_id,
+    }
+    if finding_id:
+        payload["finding_id"] = finding_id
+    if package:
+        payload["package"] = package
     if status_notes is not None:
         payload["status_notes"] = status_notes
     if justification is not None:
@@ -173,15 +197,17 @@ def register_tools(server, client: VulnScoutClient) -> None:
 
     @server.tool()
     def get_custom_assessment(assessment_id: str) -> str:
-        """Fetch one user/custom VEX assessment by ID, with any existing review.
+        """Fetch one user/custom VEX assessment by ID, with any existing reviews.
 
         Use this when the caller names a specific assessment to review. One
         assessment can cover several (package, variant) pairs at once; the
         response lists every one of them under `targets`, each with its own
-        variant_id and package, and an `outdated` flag. You need every listed
-        variant_id to call `get_merged_context` per variant. Refuses
-        assessments whose origin is not "custom" — only user-authored
-        assessments are reviewed.
+        variant_id and package, and an `outdated` flag. Each target is
+        reviewed independently, so the output shows a `review` line per
+        target (or "none") rather than one review for the whole assessment.
+        You need every listed variant_id to call `get_merged_context` per
+        variant. Refuses assessments whose origin is not "custom" — only
+        user-authored assessments are reviewed.
 
         Accepts a bare UUID, or a pasted `assessment:<uuid>` /
         `group:<uuid>` reference copied from the Review page or the
@@ -215,8 +241,10 @@ def register_tools(server, client: VulnScoutClient) -> None:
                     when project_name is given.
             variant_id: Variant UUID, if already known. Takes precedence over
                     project_name/variant_name.
-            has_review: True returns only assessments that already have a review;
-                    False returns only those without one. Omit for both.
+            has_review: True returns only assessments with a review on at least
+                    one target (see each row's `target_reviews` for which);
+                    False returns only assessments with no review on any target.
+                    Omit for both.
             order: "timestamp_desc" (newest first, the default) or "timestamp_asc".
             limit: Maximum rows to return. Defaults to 50.
             offset: Rows to skip, for paging through a large scope.
@@ -235,24 +263,32 @@ def register_tools(server, client: VulnScoutClient) -> None:
     @server.tool()
     def write_assessment_review(
         assessment_id: str,
+        variant_id: str,
         status: str,
         rationale: str,
+        package: Optional[str] = None,
+        finding_id: Optional[str] = None,
         status_notes: Optional[str] = None,
         justification: Optional[str] = None,
         impact_statement: Optional[str] = None,
         workaround: Optional[str] = None,
         responses: Optional[list] = None,
     ) -> str:
-        """Save an AI review of a user/custom VEX assessment.
+        """Save an AI review of one target of a user/custom VEX assessment.
 
         A review carries the same VEX fields as an assessment — they are the
         values the reviewer independently derived, which a user may later accept
         to replace the original. It never modifies the assessment itself.
 
-        At most one review exists per assessment, covering every (package,
-        variant) target the assessment lists: writing again overwrites the
-        previous review. The server rejects any assessment whose origin is not
-        "custom".
+        A review is scoped to exactly one (variant_id, package) target of the
+        assessment — not the assessment as a whole. A multi-target assessment
+        needs one write_assessment_review call per target, since group members
+        share the assessment text but target different variants/packages and
+        may legitimately disagree. Use get_custom_assessment first to see the
+        exact variant_id/package pairs listed under `targets`. Writing again
+        for the same target overwrites its previous review; other targets'
+        reviews are untouched. The server rejects any assessment whose origin
+        is not "custom".
 
         Every VEX field you leave unset is stored empty and counts as a
         disagreement when the server computes the agrees/differs verdict —
@@ -261,10 +297,16 @@ def register_tools(server, client: VulnScoutClient) -> None:
 
         Args:
             assessment_id: UUID of the assessment being reviewed.
+            variant_id: UUID of the target variant. Required — must be one of
+                    the assessment's own targets (see get_custom_assessment).
             status: Independently derived status. OpenVEX values:
                     under_investigation, not_affected, affected, fixed.
             rationale: Required. Why the review reaches this conclusion — name
                     the evidence, and for a disagreement name each differing field.
+            package: The target package string-id (e.g. "openssl@3.0.2"). Required
+                    unless finding_id is given.
+            finding_id: UUID of the target finding. Alternative to package when
+                    already known.
             status_notes: Notes that would replace the assessment's status_notes.
                     Append "confidence level: <high|medium|low>" here.
             justification: Required when status is 'not_affected'. OpenVEX values:
@@ -280,8 +322,11 @@ def register_tools(server, client: VulnScoutClient) -> None:
         return _write_assessment_review_impl(
             client,
             assessment_id=assessment_id,
+            variant_id=variant_id,
             status=status,
             rationale=rationale,
+            package=package,
+            finding_id=finding_id,
             status_notes=status_notes,
             justification=justification,
             impact_statement=impact_statement,

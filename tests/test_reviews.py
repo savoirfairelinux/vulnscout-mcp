@@ -72,7 +72,40 @@ def test_get_assessment_review_returns_empty_on_404(monkeypatch):
     client = _patch_http(monkeypatch, handler)
 
     # Act / Assert
-    assert client.get_assessment_review("a1") == {}
+    assert client.get_assessment_review("a1", variant_id="v1", package="openssl@3.0") == {}
+
+
+def test_get_assessment_review_sends_target_params(monkeypatch):
+    # Arrange
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"review": {"id": "r1"}})
+
+    client = _patch_http(monkeypatch, handler)
+
+    # Act
+    client.get_assessment_review("a1", variant_id="v1", finding_id="f1")
+
+    # Assert
+    assert "variant_id=v1" in seen["url"]
+    assert "finding_id=f1" in seen["url"]
+
+
+def test_list_assessment_reviews_returns_list(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/assessments/a1/reviews"
+        return httpx.Response(200, json={"reviews": [{"id": "r1"}, {"id": "r2"}]})
+
+    client = _patch_http(monkeypatch, handler)
+
+    # Act
+    reviews = client.list_assessment_reviews("a1")
+
+    # Assert
+    assert [r["id"] for r in reviews] == ["r1", "r2"]
 
 
 from tools.reviews import (
@@ -184,12 +217,24 @@ def test_get_custom_assessment_strips_assessment_prefix():
     assert client.last_assessment_id == "a1"
 
 
-def test_get_custom_assessment_shows_embedded_review():
+def test_get_custom_assessment_shows_per_target_reviews():
     # Arrange
     client = FakeClient(
         assessment={
             "origin": "custom",
-            "review": {"status": "affected", "verdict": "differs", "is_stale": False},
+            "targets": [
+                {"variant_id": "v1", "package": "openssl@3.0.8", "outdated": False},
+                {"variant_id": "v2", "package": "curl@7.0", "outdated": True},
+            ],
+            "reviews": [
+                {
+                    "variant_id": "v1",
+                    "package": "openssl@3.0.8",
+                    "status": "affected",
+                    "verdict": "differs",
+                    "is_stale": False,
+                },
+            ],
         }
     )
 
@@ -197,18 +242,24 @@ def test_get_custom_assessment_shows_embedded_review():
     out = _get_custom_assessment_impl(client, "a1")
 
     # Assert
-    assert "existing review: status=affected verdict=differs is_stale=False" in out
+    assert "review: status=affected verdict=differs is_stale=False" in out
+    assert "review: none" in out
 
 
 def test_get_custom_assessment_shows_no_review_when_absent():
     # Arrange
-    client = FakeClient(assessment={"origin": "custom"})
+    client = FakeClient(
+        assessment={
+            "origin": "custom",
+            "targets": [{"variant_id": "v1", "package": "openssl@3.0.8", "outdated": False}],
+        }
+    )
 
     # Act
     out = _get_custom_assessment_impl(client, "a1")
 
     # Assert
-    assert "existing review: none" in out
+    assert "review: none" in out
 
 
 def test_list_custom_assessments_sends_limit_and_order():
@@ -246,12 +297,61 @@ def test_list_custom_assessments_shows_variant_ids_and_target_count():
     assert "2 target(s)" in out
 
 
+def test_list_custom_assessments_shows_per_target_review_status():
+    # Arrange
+    client = FakeClient(rows=[{
+        "id": "a1", "vuln_id": "CVE-2024-0001", "status": "affected",
+        "variant_ids": ["v1", "v2"], "targets": [{}, {}], "has_review": True,
+        "target_reviews": [
+            {"variant_id": "v1", "package": "openssl@3.0.8", "has_review": True, "is_stale": False},
+            {"variant_id": "v2", "package": "curl@7.0", "has_review": False, "is_stale": False},
+        ],
+    }])
+
+    # Act
+    out = _list_custom_assessments_impl(client)
+
+    # Assert
+    assert "variant_id=v1 package=openssl@3.0.8 has_review=True is_stale=False" in out
+    assert "variant_id=v2 package=curl@7.0 has_review=False is_stale=False" in out
+
+
 def test_write_assessment_review_requires_rationale():
     # Arrange
     client = FakeClient()
 
     # Act
-    out = _write_assessment_review_impl(client, "a1", status="affected", rationale="  ")
+    out = _write_assessment_review_impl(
+        client, "a1", variant_id="v1", package="openssl@3.0.8", status="affected", rationale="  "
+    )
+
+    # Assert
+    assert out.startswith("Error")
+    assert client.last_payload is None
+
+
+def test_write_assessment_review_requires_variant_id():
+    # Arrange
+    client = FakeClient()
+
+    # Act
+    out = _write_assessment_review_impl(
+        client, "a1", variant_id="", package="openssl@3.0.8", status="affected", rationale="in rootfs"
+    )
+
+    # Assert
+    assert out.startswith("Error")
+    assert client.last_payload is None
+
+
+def test_write_assessment_review_requires_package_or_finding_id():
+    # Arrange
+    client = FakeClient()
+
+    # Act
+    out = _write_assessment_review_impl(
+        client, "a1", variant_id="v1", status="affected", rationale="in rootfs"
+    )
 
     # Assert
     assert out.startswith("Error")
@@ -263,10 +363,18 @@ def test_write_assessment_review_omits_unset_fields():
     client = FakeClient()
 
     # Act
-    _write_assessment_review_impl(client, "a1", status="affected", rationale="in rootfs")
+    _write_assessment_review_impl(
+        client, "a1", variant_id="v1", package="openssl@3.0.8",
+        status="affected", rationale="in rootfs",
+    )
 
     # Assert
-    assert client.last_payload == {"status": "affected", "rationale": "in rootfs"}
+    assert client.last_payload == {
+        "status": "affected",
+        "rationale": "in rootfs",
+        "variant_id": "v1",
+        "package": "openssl@3.0.8",
+    }
 
 
 def test_list_custom_assessments_resolves_project_and_variant_name():

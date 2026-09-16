@@ -104,12 +104,21 @@ python server.py
 
 | Tool                          | Description                                                        |
 | ------------------------------ | -------------------------------------------------------------------- |
-| `write_assessment`             | Create a VEX assessment for a CVE on one or more packages           |
+| `write_assessment`             | Create a VEX assessment for a CVE on one or more packages/variants  |
 | `get_assessment`                | Retrieve a single VEX assessment by ID                               |
 | `list_assessments_by_vuln`     | List all VEX assessments recorded for a CVE                          |
-| `get_variant_context`          | Get context fields for a variant by UUID                             |
+| `has_ai_assessment`            | Check whether a CVE already has a pending AI assessment for a variant |
+| `update_ai_assessment`         | Modify the content of an existing AI-generated assessment            |
+| `get_vulnerability`            | Retrieve a single vulnerability, scoped to a variant                 |
+| `find_project_id`              | Resolve a project name to its UUID                                   |
+| `find_variant_id`              | Resolve a project/variant name pair to a variant UUID                |
+| `get_merged_context`           | Get the merged project + variant context for a variant               |
+| `get_project_context`          | Get context fields for a project by UUID                             |
+| `update_project_context`       | Update the description of a project                                  |
 | `update_variant_context`       | Update context fields for a variant by UUID (partial updates)       |
-| `get_variant_context_by_name`  | Get context fields for a variant by project name and variant name   |
+| `get_custom_assessment`        | Fetch a single user/custom assessment, with any existing AI review  |
+| `list_custom_assessments`      | List user/custom assessments, optionally scoped to a project variant |
+| `write_assessment_review`      | Save an AI review of a user/custom assessment                        |
 
 > [!NOTE]
 > Every tool returns a plain string: either a formatted summary of the result or an `Error: ...` message. Tools never raise exceptions back to the agent.
@@ -122,7 +131,9 @@ server.py           Builds the FastMCP server and registers tool modules
 run_server.py       Self-bootstrapping launcher (creates venv, installs deps, execs server.py)
 tools/
   assessments.py    Tools for reading/writing VEX assessments
-  variants.py       Tools for reading/updating variant context
+  context.py        Tools for reading/updating project and variant context
+  reviews.py        Tools for reading custom assessments and writing reviews
+  vulnerabilities.py  Tool for reading a vulnerability, optionally variant-scoped
 tests/              pytest + respx test suite
 ```
 

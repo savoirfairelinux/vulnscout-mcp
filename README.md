@@ -25,7 +25,8 @@ daemon to manage yourself.
 ### Bootstrap launcher
 
 `run_server.py` is a self-contained launcher: on first run it creates a local
-`venv/`, installs `requirements.txt` into it, then execs into the server.
+`venv/`, and on every run it syncs `requirements.txt` into that venv before
+execing into the server, so dependency bumps are picked up automatically.
 This means an MCP client can point straight at the script without any manual
 setup — just clone the repo and configure a client below.
 

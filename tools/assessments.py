@@ -7,7 +7,8 @@ def _write_assessment_impl(
     vuln_id: str,
     packages: list,
     status: str,
-    variant_id: str,
+    variant_id: Optional[str] = None,
+    variant_ids: Optional[list] = None,
     justification: Optional[str] = None,
     status_notes: Optional[str] = None,
     impact_statement: Optional[str] = None,
@@ -17,7 +18,14 @@ def _write_assessment_impl(
     ai_generated: bool = True,
 ) -> str:
     """Core logic for write_assessment — separated for testability."""
-    payload: dict = {"packages": packages, "status": status, "variant_id": variant_id, "ai_generated": ai_generated}
+    if not variant_ids and not variant_id:
+        return "Error: variant_id or variant_ids is required"
+
+    payload: dict = {"packages": packages, "status": status, "ai_generated": ai_generated}
+    if variant_ids:
+        payload["variant_ids"] = variant_ids
+    else:
+        payload["variant_id"] = variant_id
     if justification is not None:
         payload["justification"] = justification
     if status_notes is not None:
@@ -36,10 +44,13 @@ def _write_assessment_impl(
         if "assessment" not in result:
             return str(result)
         a = result.get("assessment", {})
+        targets = a.get("targets") or []
         return (
             f"Assessment created: id={a.get('id')}, "
             f"status={a.get('status')}, "
-            f"packages={a.get('packages')}"
+            f"packages={a.get('packages')}, "
+            f"variant_ids={a.get('variant_ids')}, "
+            f"{len(targets)} target(s)"
         )
     except VulnScoutError as e:
         return f"Error: {e}"
@@ -57,11 +68,15 @@ def _has_ai_assessment_impl(
         return f"Error: {e}"
 
     for a in assessments:
-        if a.get("origin") == "ai" and a.get("variant_id") == variant_id:
+        if a.get("origin") != "ai":
+            continue
+        covered = a.get("variant_ids") or [a.get("variant_id")]
+        if variant_id in covered:
             return (
                 f"AI assessment found: id={a.get('id')}, "
                 f"status={a.get('status')}, "
-                f"packages={a.get('packages')}"
+                f"packages={a.get('packages')}, "
+                f"variant_ids={a.get('variant_ids')}"
             )
     return f"No AI assessment found for {vuln_id} with variant {variant_id}"
 
@@ -122,7 +137,8 @@ def register_tools(server, client: VulnScoutClient) -> None:
         vuln_id: str,
         packages: list,
         status: str,
-        variant_id: str,
+        variant_id: Optional[str] = None,
+        variant_ids: Optional[list] = None,
         justification: Optional[str] = None,
         status_notes: Optional[str] = None,
         impact_statement: Optional[str] = None,
@@ -132,6 +148,12 @@ def register_tools(server, client: VulnScoutClient) -> None:
         ai_generated: bool = True,
     ) -> str:
         """Write a VEX assessment for a CVE on one or more packages in VulnScout.
+
+        Creates a single assessment covering every (package, variant) pair
+        actually observed among the given packages and variants. If any pair
+        is not observed, the whole call is rejected and nothing is written.
+        If an AI-generated assessment is already pending for any of the given
+        variants, the call is rejected with a conflict error.
 
         Returns a success summary when the API response includes an `assessment`
         object. If the response does not include `assessment`, the call is treated
@@ -144,7 +166,11 @@ def register_tools(server, client: VulnScoutClient) -> None:
             status: Assessment status. OpenVEX values: under_investigation, not_affected, affected, fixed.
                     CycloneDX VEX values: in_triage, false_positive, not_affected, exploitable,
                     resolved, resolved_with_pedigree.
-            variant_id: Required UUID of the variant to scope this assessment to.
+            variant_id: UUID of the variant to scope this assessment to. Either
+                    this or variant_ids is required.
+            variant_ids: List of variant UUIDs to scope this assessment to, when
+                    it covers more than one variant. Takes precedence over
+                    variant_id when both are given.
             justification: Required when status is 'not_affected'. OpenVEX values:
                     component_not_present, vulnerable_code_not_present,
                     vulnerable_code_not_in_execute_path,
@@ -167,6 +193,7 @@ def register_tools(server, client: VulnScoutClient) -> None:
             packages=packages,
             status=status,
             variant_id=variant_id,
+            variant_ids=variant_ids,
             justification=justification,
             status_notes=status_notes,
             impact_statement=impact_statement,
@@ -206,9 +233,11 @@ def register_tools(server, client: VulnScoutClient) -> None:
                 return f"No assessments found for {vuln_id}"
             lines = [f"Assessments for {vuln_id} ({len(results)} total):"]
             for a in results:
+                targets = a.get("targets") or []
                 lines.append(
-                    f"  id={a.get('id')} status={a.get('status')} "
+                    f"  id={a.get('id')} origin={a.get('origin')} status={a.get('status')} "
                     f"packages={a.get('packages')} justification={a.get('justification')} "
+                    f"variant_ids={a.get('variant_ids')} {len(targets)} target(s) "
                     f"timestamp={a.get('timestamp')}"
                 )
             return "\n".join(lines)
@@ -245,7 +274,9 @@ def register_tools(server, client: VulnScoutClient) -> None:
         this tool. The assessment is fetched first to verify this; if it is
         not AI-generated, the tool refuses to modify it and no update request
         is sent. All fields below are optional — only the ones supplied are
-        included in the update, and at least one must be provided.
+        included in the update, and at least one must be provided. The update
+        applies to the assessment's content only: it cannot add, remove, or
+        otherwise change which (package, variant) targets the assessment covers.
 
         Args:
             assessment_id: UUID of the assessment to modify.

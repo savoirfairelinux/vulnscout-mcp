@@ -1,7 +1,10 @@
+import asyncio
+
 import httpx
 import pytest
 
 from client import VulnScoutClient, VulnScoutError
+from server import create_server
 
 
 def _patch_http(monkeypatch, handler) -> VulnScoutClient:
@@ -50,6 +53,16 @@ def test_write_assessment_review_puts_payload(monkeypatch):
     assert seen["method"] == "PUT"
     assert seen["path"] == "/api/assessments/a1/review"
     assert result["review"]["status"] == "affected"
+
+
+def test_write_assessment_review_schema_requires_fingerprint():
+    server = create_server("http://vulnscout.test")
+
+    tools = asyncio.run(server.list_tools())
+    review_tool = next(tool for tool in tools if tool.name == "write_assessment_review")
+
+    assert "expected_assessment_fingerprint" in review_tool.input_schema["properties"]
+    assert "expected_assessment_fingerprint" in review_tool.input_schema["required"]
 
 
 def test_write_assessment_review_raises_on_409(monkeypatch):
@@ -184,13 +197,15 @@ def test_get_custom_assessment_returns_fields_and_targets():
     client = FakeClient(
         assessment={
             "origin": "custom",
+            "assessment_fingerprint": "fp-1",
+            "project_id": "p1",
             "vuln_id": "CVE-2024-0001",
             "packages": ["openssl@3.0.8", "curl@7.0"],
             "status": "not_affected",
             "variant_ids": ["v1", "v2"],
             "targets": [
-                {"variant_id": "v1", "package": "openssl@3.0.8", "outdated": False},
-                {"variant_id": "v2", "package": "curl@7.0", "outdated": True},
+                {"project_id": "p1", "variant_id": "v1", "package": "openssl@3.0.8", "outdated": False},
+                {"project_id": "p1", "variant_id": "v2", "package": "curl@7.0", "outdated": True},
             ],
         }
     )
@@ -200,10 +215,11 @@ def test_get_custom_assessment_returns_fields_and_targets():
 
     # Assert
     assert "CVE-2024-0001" in out
+    assert "assessment_fingerprint=fp-1" in out
+    assert "project_id=p1 variant_id=v1 package=openssl@3.0.8 outdated=False" in out
     assert "not_affected" in out
     assert "2 target(s) across 2 variant(s)" in out
-    assert "variant_id=v1 package=openssl@3.0.8 outdated=False" in out
-    assert "variant_id=v2 package=curl@7.0 outdated=True" in out
+    assert "project_id=p1 variant_id=v2 package=curl@7.0 outdated=True" in out
 
 
 def test_get_custom_assessment_strips_assessment_prefix():
@@ -286,6 +302,7 @@ def test_list_custom_assessments_shows_variant_ids_and_target_count():
     # Arrange
     client = FakeClient(rows=[{
         "id": "a1", "vuln_id": "CVE-2024-0001", "status": "affected",
+        "assessment_fingerprint": "fp-1", "project_id": "p1",
         "variant_ids": ["v1", "v2"], "targets": [{}, {}],
     }])
 
@@ -294,6 +311,8 @@ def test_list_custom_assessments_shows_variant_ids_and_target_count():
 
     # Assert
     assert "variant_ids=['v1', 'v2']" in out
+    assert "assessment_fingerprint=fp-1" in out
+    assert "project_id=p1" in out
     assert "2 target(s)" in out
 
 
@@ -322,7 +341,8 @@ def test_write_assessment_review_requires_rationale():
 
     # Act
     out = _write_assessment_review_impl(
-        client, "a1", variant_id="v1", package="openssl@3.0.8", status="affected", rationale="  "
+        client, "a1", "fp-1", variant_id="v1", package="openssl@3.0.8",
+        status="affected", rationale="  "
     )
 
     # Assert
@@ -336,7 +356,8 @@ def test_write_assessment_review_requires_variant_id():
 
     # Act
     out = _write_assessment_review_impl(
-        client, "a1", variant_id="", package="openssl@3.0.8", status="affected", rationale="in rootfs"
+        client, "a1", "fp-1", variant_id="", package="openssl@3.0.8",
+        status="affected", rationale="in rootfs"
     )
 
     # Assert
@@ -350,7 +371,7 @@ def test_write_assessment_review_requires_package_or_finding_id():
 
     # Act
     out = _write_assessment_review_impl(
-        client, "a1", variant_id="v1", status="affected", rationale="in rootfs"
+        client, "a1", "fp-1", variant_id="v1", status="affected", rationale="in rootfs"
     )
 
     # Assert
@@ -358,18 +379,31 @@ def test_write_assessment_review_requires_package_or_finding_id():
     assert client.last_payload is None
 
 
-def test_write_assessment_review_omits_unset_fields():
+def test_write_assessment_review_requires_fingerprint():
+    client = FakeClient()
+
+    out = _write_assessment_review_impl(
+        client, "a1", "", variant_id="v1", package="openssl@3.0.8",
+        status="affected", rationale="in rootfs",
+    )
+
+    assert "expected_assessment_fingerprint is required" in out
+    assert client.last_payload is None
+
+
+def test_write_assessment_review_forwards_fingerprint_and_omits_unset_fields():
     # Arrange
     client = FakeClient()
 
     # Act
     _write_assessment_review_impl(
-        client, "a1", variant_id="v1", package="openssl@3.0.8",
+        client, "a1", "fp-1", variant_id="v1", package="openssl@3.0.8",
         status="affected", rationale="in rootfs",
     )
 
     # Assert
     assert client.last_payload == {
+        "expected_assessment_fingerprint": "fp-1",
         "status": "affected",
         "rationale": "in rootfs",
         "variant_id": "v1",

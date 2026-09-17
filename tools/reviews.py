@@ -42,6 +42,8 @@ def _get_custom_assessment_impl(client: VulnScoutClient, assessment_id: str) -> 
     lines = [
         f"Custom assessment {assessment_id} "
         f"({len(targets)} target(s) across {len(assessment.get('variant_ids') or [])} variant(s)):",
+        f"  assessment_fingerprint={assessment.get('assessment_fingerprint')}",
+        f"  project_id={assessment.get('project_id')}",
         f"  vuln_id={assessment.get('vuln_id')}",
         f"  packages={assessment.get('packages')}",
         f"  variant_ids={assessment.get('variant_ids')}",
@@ -60,7 +62,8 @@ def _get_custom_assessment_impl(client: VulnScoutClient, assessment_id: str) -> 
     }
     for t in targets:
         lines.append(
-            f"    variant_id={t.get('variant_id')} package={t.get('package')} "
+            f"    project_id={t.get('project_id')} variant_id={t.get('variant_id')} "
+            f"package={t.get('package')} "
             f"outdated={t.get('outdated')}"
         )
         review = reviews_by_target.get((t.get("variant_id"), t.get("package")))
@@ -119,6 +122,8 @@ def _list_custom_assessments_impl(
         targets = a.get("targets") or []
         lines.append(
             f"  assessment_id={a.get('id')} vuln_id={a.get('vuln_id')} "
+            f"assessment_fingerprint={a.get('assessment_fingerprint')} "
+            f"project_id={a.get('project_id')} "
             f"packages={a.get('packages')} variant_ids={a.get('variant_ids')} "
             f"{len(targets)} target(s) "
             f"status={a.get('status')} justification={a.get('justification')} "
@@ -138,6 +143,7 @@ def _list_custom_assessments_impl(
 def _write_assessment_review_impl(
     client: VulnScoutClient,
     assessment_id: str,
+    expected_assessment_fingerprint: str,
     variant_id: str,
     status: str,
     rationale: str,
@@ -150,6 +156,12 @@ def _write_assessment_review_impl(
     responses: Optional[list] = None,
 ) -> str:
     """Core logic for write_assessment_review — separated for testability."""
+    if not expected_assessment_fingerprint or not expected_assessment_fingerprint.strip():
+        return (
+            "Error: expected_assessment_fingerprint is required — pass the "
+            "assessment_fingerprint returned by get_custom_assessment or "
+            "list_custom_assessments."
+        )
     if not rationale or not rationale.strip():
         return "Error: rationale is required — state why the review reaches its conclusion."
     if not variant_id:
@@ -158,6 +170,7 @@ def _write_assessment_review_impl(
         return "Error: finding_id or package is required — a review targets one (variant, package) pair."
 
     payload: dict = {
+        "expected_assessment_fingerprint": expected_assessment_fingerprint.strip(),
         "status": status,
         "rationale": rationale.strip(),
         "variant_id": variant_id,
@@ -263,6 +276,7 @@ def register_tools(server, client: VulnScoutClient) -> None:
     @server.tool()
     def write_assessment_review(
         assessment_id: str,
+        expected_assessment_fingerprint: str,
         variant_id: str,
         status: str,
         rationale: str,
@@ -290,6 +304,12 @@ def register_tools(server, client: VulnScoutClient) -> None:
         reviews are untouched. The server rejects any assessment whose origin
         is not "custom".
 
+        Pass the assessment_fingerprint returned by get_custom_assessment or
+        list_custom_assessments as expected_assessment_fingerprint. This
+        read-time token prevents a review derived from stale authored content
+        from being stored as current. If the assessment changed, fetch it
+        again and repeat the review rather than retrying with a new token.
+
         Every VEX field you leave unset is stored empty and counts as a
         disagreement when the server computes the agrees/differs verdict —
         pass every field you derived, including ones that match the
@@ -297,6 +317,8 @@ def register_tools(server, client: VulnScoutClient) -> None:
 
         Args:
             assessment_id: UUID of the assessment being reviewed.
+            expected_assessment_fingerprint: Exact assessment_fingerprint from
+                    the assessment read used for this review. Required.
             variant_id: UUID of the target variant. Required — must be one of
                     the assessment's own targets (see get_custom_assessment).
             status: Independently derived status. OpenVEX values:
@@ -322,6 +344,7 @@ def register_tools(server, client: VulnScoutClient) -> None:
         return _write_assessment_review_impl(
             client,
             assessment_id=assessment_id,
+            expected_assessment_fingerprint=expected_assessment_fingerprint,
             variant_id=variant_id,
             status=status,
             rationale=rationale,

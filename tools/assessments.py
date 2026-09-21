@@ -149,9 +149,14 @@ def register_tools(server, client: VulnScoutClient) -> None:
     ) -> str:
         """Write a VEX assessment for a CVE on one or more packages in VulnScout.
 
-        Creates a single assessment covering every (package, variant) pair
-        actually observed among the given packages and variants. If any pair
-        is not observed, the whole call is rejected and nothing is written.
+        Creates a single assessment covering the (package, variant) pairs
+        actually observed among the given packages and variants. Pairs that
+        no scan recorded are silently skipped, not rejected. The call is
+        rejected (and nothing written) only if a package or variant does not
+        exist, the variants belong to different projects, or a package is
+        observed in none of the given variants. Compare the "N target(s)"
+        count in the result with the expected packages x variants to detect
+        skipped pairs.
         If an AI-generated assessment is already pending for any of the given
         variants, the call is rejected with a conflict error.
 

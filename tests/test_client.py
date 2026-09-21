@@ -140,6 +140,35 @@ class TestListVariantsByProject:
                 client.list_variants_by_project("p1")
 
 
+class TestListVariants:
+
+    def test_success_returns_variant_list(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/variants").mock(
+                return_value=httpx.Response(
+                    200, json=[{"id": "v1", "name": "MyVariant", "project_id": "p1"}]
+                )
+            )
+            result = client.list_variants()
+        assert result == [{"id": "v1", "name": "MyVariant", "project_id": "p1"}]
+
+    def test_api_error_raises_vuln_scout_error(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/variants").mock(
+                return_value=httpx.Response(500, json={"error": "Internal server error"})
+            )
+            with pytest.raises(VulnScoutError, match="Internal server error"):
+                client.list_variants()
+
+    def test_connection_error_raises_vuln_scout_error(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/variants").mock(
+                side_effect=httpx.ConnectError("Connection refused")
+            )
+            with pytest.raises(VulnScoutError, match="Could not connect to VulnScout at http://vulnscout.test"):
+                client.list_variants()
+
+
 class TestGetMergedContext:
 
     def test_success_returns_response_dict(self, client):

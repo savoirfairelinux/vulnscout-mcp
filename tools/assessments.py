@@ -45,13 +45,20 @@ def _write_assessment_impl(
             return str(result)
         a = result.get("assessment", {})
         targets = a.get("targets") or []
-        return (
+        summary = (
             f"Assessment created: id={a.get('id')}, "
             f"status={a.get('status')}, "
             f"packages={a.get('packages')}, "
             f"variant_ids={a.get('variant_ids')}, "
             f"{len(targets)} target(s)"
         )
+        replaced = result.get("replaced") or []
+        if replaced:
+            summary += "; replaced: " + ", ".join(
+                f"{r.get('id')} ({r.get('action')}, {' '.join(r.get('variant_ids') or [])})"
+                for r in replaced
+            )
+        return summary
     except VulnScoutError as e:
         return f"Error: {e}"
 
@@ -149,14 +156,24 @@ def register_tools(server, client: VulnScoutClient) -> None:
     ) -> str:
         """Write a VEX assessment for a CVE on one or more packages in VulnScout.
 
-        Creates a single assessment covering every (package, variant) pair
-        actually observed among the given packages and variants. If any pair
-        is not observed, the whole call is rejected and nothing is written.
-        If an AI-generated assessment is already pending for any of the given
-        variants, the call is rejected with a conflict error.
+        Creates a single assessment covering the (package, variant) pairs
+        actually observed among the given packages and variants. Pairs that
+        no scan recorded are silently skipped, not rejected. The call is
+        rejected (and nothing written) only if a package or variant does not
+        exist, the variants belong to different projects, or a package is
+        observed in none of the given variants. Compare the "N target(s)"
+        count in the result with the expected packages x variants to detect
+        skipped pairs.
+        When ai_generated is true (the default), the write replaces any
+        pending AI assessment on the given variants. A pending assessment that
+        also covers other variants keeps those and loses only the overlap.
+        Only AI assessments are replaced, never custom ones, and the swap is
+        atomic: if the write fails, the old assessment is left intact. No
+        pre-check with has_ai_assessment is needed.
 
         Returns a success summary when the API response includes an `assessment`
-        object. If the response does not include `assessment`, the call is treated
+        object, followed by "; replaced: <id> (<deleted|trimmed>, <variant ids>)"
+        for each pending AI assessment the write replaced. If the response does not include `assessment`, the call is treated
         as failed and the raw response payload is returned instead. Client errors
         are returned as an `Error: ...` string.
 
@@ -246,12 +263,13 @@ def register_tools(server, client: VulnScoutClient) -> None:
 
     @server.tool()
     def has_ai_assessment(vuln_id: str, variant_id: str) -> str:
-        """Check if a vulnerability already has an AI-generated assessment for a given variant.
+        """Look up the AI-generated assessment for a vulnerability on a given variant.
 
         Queries all assessments for the CVE and returns details of the first
         AI-generated assessment scoped to the specified variant, or a clear
-        "not found" message if none exists. Use this before writing a new AI
-        assessment to avoid duplicates.
+        "not found" message if none exists. This is informational only:
+        write_assessment replaces the pending AI assessment on its own, so
+        there is no need to call this before writing.
 
         Args:
             vuln_id: CVE identifier, e.g. CVE-2024-1234

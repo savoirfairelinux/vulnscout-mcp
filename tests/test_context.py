@@ -10,6 +10,7 @@ from tools.context import (
     _find_variant_id_impl,
     _get_merged_context_impl,
     _get_project_context_impl,
+    _list_variants_impl,
     _update_project_context_impl,
     _update_variant_context_impl,
 )
@@ -21,6 +22,40 @@ BASE_URL = "http://vulnscout.test"
 @pytest.fixture
 def client():
     return VulnScoutClient(BASE_URL)
+
+
+class TestListVariantsImpl:
+
+    def test_formats_one_line_per_variant(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/variants").mock(
+                return_value=httpx.Response(
+                    200,
+                    json=[
+                        {"id": "v1", "name": "Release", "project_id": "p1"},
+                        {"id": "v2", "name": "Debug", "project_id": "p2"},
+                    ],
+                )
+            )
+            result = _list_variants_impl(client)
+        assert result == (
+            "id=v1 name=Release project_id=p1\n"
+            "id=v2 name=Debug project_id=p2"
+        )
+
+    def test_empty_returns_none_marker(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/variants").mock(
+                return_value=httpx.Response(200, json=[])
+            )
+            assert _list_variants_impl(client) == "(none)"
+
+    def test_returns_error_string_on_failure(self, client):
+        with respx.mock:
+            respx.get(f"{BASE_URL}/api/variants").mock(
+                return_value=httpx.Response(500, json={"error": "boom"})
+            )
+            assert _list_variants_impl(client) == "Error: boom"
 
 
 class TestFindProjectIdImpl:

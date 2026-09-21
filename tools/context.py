@@ -75,6 +75,19 @@ def _find_variant_id_impl(client: VulnScoutClient, project_name: str, variant_na
         return f"Error: {e}"
 
 
+def _list_variants_impl(client: VulnScoutClient) -> str:
+    try:
+        variants = client.list_variants()
+    except VulnScoutError as e:
+        return f"Error: {e}"
+    if not variants:
+        return "(none)"
+    return "\n".join(
+        f"id={v.get('id')} name={v.get('name')} project_id={v.get('project_id')}"
+        for v in variants
+    )
+
+
 def _get_merged_context_impl(client: VulnScoutClient, project_id: str, variant_id: str) -> str:
     try:
         ctx = client.get_merged_context(project_id, variant_id)
@@ -156,6 +169,17 @@ def register_tools(server, client: VulnScoutClient) -> None:
             variant_name: Exact name of the variant within that project.
         """
         return _find_variant_id_impl(client, project_name, variant_name)
+
+    @server.tool()
+    def list_variants() -> str:
+        """List every variant across all projects.
+
+        Returns one line per variant in the form
+        "id=<uuid> name=<name> project_id=<uuid>", or "(none)" if there are
+        no variants. Use this to discover available variants; if you already
+        know the project and variant names, use find_variant_id instead.
+        """
+        return _list_variants_impl(client)
 
     @server.tool()
     def get_merged_context(project_id: str, variant_id: str) -> str:

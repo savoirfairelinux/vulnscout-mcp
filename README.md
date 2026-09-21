@@ -112,6 +112,7 @@ python server.py
 | `get_vulnerability`            | Retrieve a single vulnerability, scoped to a variant                 |
 | `find_project_id`              | Resolve a project name to its UUID                                   |
 | `find_variant_id`              | Resolve a project/variant name pair to a variant UUID                |
+| `list_variants`                | List all variants across every project (id, name, project_id)        |
 | `get_merged_context`           | Get the merged project + variant context for a variant               |
 | `get_project_context`          | Get context fields for a project by UUID                             |
 | `update_project_context`       | Update the description of a project                                  |

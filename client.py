@@ -80,6 +80,22 @@ class VulnScoutClient:
             raise VulnScoutError(error_msg)
         return response.json()
 
+    def list_variants(self) -> list:
+        """GET /api/variants. Returns a list of {id, name, project_id} dicts across all projects."""
+        url = f"{self.base_url}/api/variants"
+        try:
+            with httpx.Client() as http:
+                response = http.get(url)
+        except httpx.ConnectError:
+            raise VulnScoutError(f"Could not connect to VulnScout at {self.base_url}")
+        if not response.is_success:
+            try:
+                error_msg = response.json().get("error", response.text)
+            except Exception:
+                error_msg = response.text
+            raise VulnScoutError(error_msg)
+        return response.json()
+
     def get_merged_context(self, project_id: str, variant_id: str) -> dict:
         """GET /api/context?project_id=<project_id>&variant_id=<variant_id>.
 

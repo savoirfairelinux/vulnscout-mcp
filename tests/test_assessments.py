@@ -139,6 +139,42 @@ class TestWriteAssessmentImpl:
         assert "variant_id" not in body
         assert "2 target(s)" in result
 
+    def test_result_reports_replaced_assessments(self, client):
+        with respx.mock:
+            respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "status": "success",
+                        "assessment": {"id": "new", "status": "affected", "packages": []},
+                        "replaced": [
+                            {"id": "old1", "action": "deleted", "variant_ids": ["v1"]},
+                            {"id": "old2", "action": "trimmed", "variant_ids": ["v1", "v2"]},
+                        ],
+                    },
+                )
+            )
+            result = _write_assessment_impl(
+                client, vuln_id="CVE-2024-1234", packages=["lib@1.0"],
+                status="affected", variant_id="v1",
+            )
+        assert result.endswith("; replaced: old1 (deleted, v1), old2 (trimmed, v1 v2)")
+
+    def test_result_omits_replaced_when_empty(self, client):
+        with respx.mock:
+            respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "success", "replaced": [],
+                          "assessment": {"id": "new", "status": "affected", "packages": []}},
+                )
+            )
+            result = _write_assessment_impl(
+                client, vuln_id="CVE-2024-1234", packages=["lib@1.0"],
+                status="affected", variant_id="v1",
+            )
+        assert "replaced" not in result
+
     def test_variant_ids_takes_precedence_over_variant_id(self, client):
         with respx.mock:
             route = respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(

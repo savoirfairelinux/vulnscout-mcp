@@ -205,6 +205,77 @@ class TestWriteAssessmentImpl:
             )
         assert result == "Error: variant_id or variant_ids is required"
 
+    def test_missing_packages_returns_error_without_request(self, client):
+        with respx.mock:
+            result = _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                status="affected",
+                variant_id="variant-uuid-111",
+            )
+        assert result == "Error: packages is required when targets is not provided"
+
+    def test_sparse_multi_variant_targets_are_forwarded_exactly(self, client):
+        # A multi-variant group where each variant has a different affected
+        # package version cannot be expressed as packages x variant_ids
+        # (that would cross-join and assess pairs never observed) — only the
+        # exact (package, variant_id) pairs via `targets`.
+        targets = [
+            {"package": "openssl@1.0.0", "variant_id": "variant-uuid-111"},
+            {"package": "openssl@1.0.1", "variant_id": "variant-uuid-222"},
+        ]
+        with respx.mock:
+            route = respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "status": "success",
+                        "assessment": {
+                            "id": "uuid-sparse",
+                            "status": "affected",
+                            "packages": ["openssl@1.0.0", "openssl@1.0.1"],
+                            "variant_ids": ["variant-uuid-111", "variant-uuid-222"],
+                            "targets": targets,
+                        },
+                    },
+                )
+            )
+            result = _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                status="affected",
+                targets=targets,
+            )
+        body = json.loads(route.calls[0].request.content)
+        assert body["targets"] == targets
+        assert "packages" not in body
+        assert "variant_id" not in body
+        assert "variant_ids" not in body
+        assert "uuid-sparse" in result
+        assert "2 target(s)" in result
+
+    def test_targets_take_precedence_over_packages_and_variants(self, client):
+        targets = [{"package": "openssl@1.0.0", "variant_id": "variant-uuid-111"}]
+        with respx.mock:
+            route = respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={"status": "success", "assessment": {"id": "x", "status": "affected", "packages": []}},
+                )
+            )
+            _write_assessment_impl(
+                client,
+                vuln_id="CVE-2024-1234",
+                status="affected",
+                packages=["curl@7.0"],
+                variant_id="other-variant",
+                targets=targets,
+            )
+        body = json.loads(route.calls[0].request.content)
+        assert body["targets"] == targets
+        assert "packages" not in body
+        assert "variant_id" not in body
+
     def test_api_error_returns_error_string(self, client):
         with respx.mock:
             respx.post(f"{BASE_URL}/api/vulnerabilities/CVE-2024-1234/assessments").mock(

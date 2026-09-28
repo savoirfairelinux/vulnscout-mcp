@@ -5,10 +5,11 @@ from client import VulnScoutClient, VulnScoutError
 def _write_assessment_impl(
     client: VulnScoutClient,
     vuln_id: str,
-    packages: list,
     status: str,
+    packages: Optional[list] = None,
     variant_id: Optional[str] = None,
     variant_ids: Optional[list] = None,
+    targets: Optional[list] = None,
     justification: Optional[str] = None,
     status_notes: Optional[str] = None,
     impact_statement: Optional[str] = None,
@@ -18,14 +19,18 @@ def _write_assessment_impl(
     ai_generated: bool = True,
 ) -> str:
     """Core logic for write_assessment — separated for testability."""
-    if not variant_ids and not variant_id:
-        return "Error: variant_id or variant_ids is required"
-
-    payload: dict = {"packages": packages, "status": status, "ai_generated": ai_generated}
-    if variant_ids:
-        payload["variant_ids"] = variant_ids
+    if targets:
+        payload: dict = {"targets": targets, "status": status, "ai_generated": ai_generated}
     else:
-        payload["variant_id"] = variant_id
+        if not packages:
+            return "Error: packages is required when targets is not provided"
+        if not variant_ids and not variant_id:
+            return "Error: variant_id or variant_ids is required"
+        payload = {"packages": packages, "status": status, "ai_generated": ai_generated}
+        if variant_ids:
+            payload["variant_ids"] = variant_ids
+        else:
+            payload["variant_id"] = variant_id
     if justification is not None:
         payload["justification"] = justification
     if status_notes is not None:
@@ -142,10 +147,11 @@ def register_tools(server, client: VulnScoutClient) -> None:
     @server.tool()
     def write_assessment(
         vuln_id: str,
-        packages: list,
         status: str,
+        packages: Optional[list] = None,
         variant_id: Optional[str] = None,
         variant_ids: Optional[list] = None,
+        targets: Optional[list] = None,
         justification: Optional[str] = None,
         status_notes: Optional[str] = None,
         impact_statement: Optional[str] = None,
@@ -156,14 +162,28 @@ def register_tools(server, client: VulnScoutClient) -> None:
     ) -> str:
         """Write a VEX assessment for a CVE on one or more packages in VulnScout.
 
-        Creates a single assessment covering the (package, variant) pairs
-        actually observed among the given packages and variants. Pairs that
-        no scan recorded are silently skipped, not rejected. The call is
-        rejected (and nothing written) only if a package or variant does not
-        exist, the variants belong to different projects, or a package is
-        observed in none of the given variants. Compare the "N target(s)"
-        count in the result with the expected packages x variants to detect
-        skipped pairs.
+        Two ways to scope the assessment:
+
+        - `packages` + (`variant_id` or `variant_ids`): creates a single
+          assessment covering every (package, variant) pair actually observed
+          among the given packages and variants — i.e. the cross-product,
+          filtered to what a scan recorded. Pairs that no scan recorded are
+          silently skipped, not rejected. Use this only when every package
+          in `packages` genuinely applies to every variant in the group; a
+          naive union crossed with variants can otherwise assess a
+          package/variant combo that was never actually selected for it.
+        - `targets`: a list of exact `{"package": ..., "variant_id": ...}`
+          pairs. Takes precedence over `packages`/`variant_id`/`variant_ids`
+          when given, and is the required form for a multi-variant group
+          where different variants have different affected package versions
+          (a sparse selection) — the server validates each pair individually
+          and rejects any that was never observed, rather than filling in
+          extra pairs from a cross-product.
+
+        The call is rejected (and nothing written) only if a package or
+        variant does not exist, the variants belong to different projects, or
+        a target pair was never observed. Compare the "N target(s)" count in
+        the result with the expected pair count to detect skipped pairs.
         When ai_generated is true (the default), the write replaces any
         pending AI assessment on the given variants. A pending assessment that
         also covers other variants keeps those and loses only the overlap.
@@ -179,15 +199,21 @@ def register_tools(server, client: VulnScoutClient) -> None:
 
         Args:
             vuln_id: CVE identifier, e.g. CVE-2024-1234
-            packages: List of affected package strings in 'name@version' format, e.g. ['openssl@1.0.0']
             status: Assessment status. OpenVEX values: under_investigation, not_affected, affected, fixed.
                     CycloneDX VEX values: in_triage, false_positive, not_affected, exploitable,
                     resolved, resolved_with_pedigree.
+            packages: List of affected package strings in 'name@version' format, e.g. ['openssl@1.0.0'].
+                    Required unless `targets` is given.
             variant_id: UUID of the variant to scope this assessment to. Either
-                    this or variant_ids is required.
+                    this or variant_ids is required unless `targets` is given.
             variant_ids: List of variant UUIDs to scope this assessment to, when
                     it covers more than one variant. Takes precedence over
                     variant_id when both are given.
+            targets: List of exact `{"package": "<name>@<version>", "variant_id": "<uuid>"}`
+                    pairs. Use this instead of `packages`/`variant_id`/`variant_ids`
+                    for a multi-variant group whose members do not all share the
+                    same affected package set. Takes precedence over
+                    `packages`/`variant_id`/`variant_ids` when given.
             justification: Required when status is 'not_affected'. OpenVEX values:
                     component_not_present, vulnerable_code_not_present,
                     vulnerable_code_not_in_execute_path,
@@ -207,10 +233,11 @@ def register_tools(server, client: VulnScoutClient) -> None:
         return _write_assessment_impl(
             client,
             vuln_id=vuln_id,
-            packages=packages,
             status=status,
+            packages=packages,
             variant_id=variant_id,
             variant_ids=variant_ids,
+            targets=targets,
             justification=justification,
             status_notes=status_notes,
             impact_statement=impact_statement,
